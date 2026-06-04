@@ -135,11 +135,16 @@ class KimiModel(Chat):
     def build_messages(self, prompt: llm.Prompt, conversation: llm.Conversation | None, image_detail: ImageDetailEnum | None = None) -> list[dict[str, Any]]:
         messages = super().build_messages(prompt, conversation, image_detail)
         # Monkey patching
+        for message in messages:
+            if message['role'] == 'assistant' and 'tool_calls' in message:
+                for tool_call in message['tool_calls']:
+                    if tool_call['function']['name'] == '$web_search':
+                        tool_call['type'] = 'builtin_function'
         if prompt.options.thinking:
             for message in reversed(messages):
                 if message['role'] == 'assistant' and 'tool_calls' in message and 'reasoning_content' not in message:
                     # In thinking mode, Kimi requires reasoning_content for tool_calls
-                    message['reasoning_content'] = self._last_reasoning_content
+                    message['reasoning_content'] = self._last_reasoning_content or ''
                     break
         return messages
 
@@ -148,7 +153,25 @@ class KimiModel(Chat):
         kwargs = super().build_kwargs(prompt, stream)
         if 'thinking' in kwargs:
             del kwargs['thinking']
+        if 'tools' in kwargs:
+            for tool in kwargs['tools']:
+                if tool['function']['name'] == '$web_search':
+                    tool['type'] = 'builtin_function'
+                    del tool['function']['description']
+                    del tool['function']['parameters']
         return kwargs
+
+
+# def web_search(arguments: dict[str, Any]):
+def web_search(**kwargs):
+    """Kimi's builtin web searching tool"""
+    # https://platform.kimi.com/docs/guide/use-web-search
+    return kwargs
+
+
+@llm.hookimpl
+def register_tools(register):
+    register(web_search, name='$web_search')
 
 
 class BearerAuth(httpx.Auth):

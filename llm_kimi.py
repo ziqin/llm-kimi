@@ -1,9 +1,9 @@
 import json
-from typing import Iterator, TYPE_CHECKING, override
+from typing import Any, Iterator, TYPE_CHECKING, override
 
 import httpx
 import llm
-from llm.default_plugins.openai_models import Chat, combine_chunks
+from llm.default_plugins.openai_models import Chat, ImageDetailEnum, combine_chunks
 from llm.utils import remove_dict_none_values
 from rich.console import Console
 from rich.style import Style
@@ -53,15 +53,13 @@ class KimiModel(Chat):
     def execute(self, prompt: llm.Prompt, stream: bool, response: llm.Response, conversation: llm.Conversation | None = None, key: str | None = None) -> Iterator[str]:
         messages = self.build_messages(prompt, conversation)
         kwargs = self.build_kwargs(prompt, stream)
-        reasoning_enabled = kwargs.pop('thinking')
-        self._patch_tool_call_reasoning_message(messages, reasoning_enabled)
         client: OpenAI = self.get_client(key=key)
         usage = None
         completion = client.chat.completions.create(
             model=self.model_name or self.model_id,
             messages=messages,
             stream=stream,
-            extra_body={'thinking': {'type': 'enabled' if reasoning_enabled else 'disabled'}},
+            extra_body={'thinking': {'type': 'enabled' if prompt.options.thinking else 'disabled'}},
             **kwargs,
         )
         if stream:
@@ -106,12 +104,11 @@ class KimiModel(Chat):
             response_dict = completion.model_dump()
             try:
                 message = completion.choices[0].message
-                if hasattr(message, 'reasoning_content') and message.reasoning_content:
-                    self._print_reasoning(message.reasoning_content, print_header=True)
+                reasoning_content = getattr(message, 'reasoning_content', default=None)
+                if reasoning_content:
+                    self._print_reasoning(reasoning_content, print_header=True)
                     self._console.print('\n\n 💬 Answer:', style=self._header_style, end='\n\n')
-                    self._last_reasoning_content = message.reasoning_content
-                else:
-                    self._last_reasoning_content = None
+                self._last_reasoning_content = reasoning_content
                 yield message.content
             except IndexError:
                 pass
@@ -123,13 +120,6 @@ class KimiModel(Chat):
             self._console.print('\n 💭 Thinking:', style=self._header_style, end='\n\n')
         self._console.print(reasoning_content, style=self._reasoning_style, end='')
 
-    def _patch_tool_call_reasoning_message(self, messages: list[dict], reasoning: bool):
-        if reasoning:
-            for message in reversed(messages):
-                if message['role'] == 'assistant' and 'tool_calls' in message and 'reasoning_content' not in message:
-                    message['reasoning_content'] = self._last_reasoning_content
-                    break
-
     @staticmethod
     def _merge_tool_calls(output: dict[int, ChoiceDeltaToolCall], tool_calls: list[ChoiceDeltaToolCall]):
         for tool_call in tool_calls:
@@ -140,6 +130,25 @@ class KimiModel(Chat):
                 output[index] = tool_call
             else:
                 output[index].function.arguments += tool_call.function.arguments
+
+    @override
+    def build_messages(self, prompt: llm.Prompt, conversation: llm.Conversation | None, image_detail: ImageDetailEnum | None = None) -> list[dict[str, Any]]:
+        messages = super().build_messages(prompt, conversation, image_detail)
+        # Monkey patching
+        if prompt.options.thinking:
+            for message in reversed(messages):
+                if message['role'] == 'assistant' and 'tool_calls' in message and 'reasoning_content' not in message:
+                    # In thinking mode, Kimi requires reasoning_content for tool_calls
+                    message['reasoning_content'] = self._last_reasoning_content
+                    break
+        return messages
+
+    @override
+    def build_kwargs(self, prompt: llm.Prompt, stream: bool) -> dict[str, Any]:
+        kwargs = super().build_kwargs(prompt, stream)
+        if 'thinking' in kwargs:
+            del kwargs['thinking']
+        return kwargs
 
 
 class BearerAuth(httpx.Auth):

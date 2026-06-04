@@ -29,6 +29,11 @@ To enable thinking mode, use `-o thinking true`:
 llm -m kimi-k2.6 -o thinking true "I need to get my car washed. The car wash is 100m away. Should I go by car or by foot?"
 ```
 
+To use Kimi's Internet search functionality, use `-T '$web_search'`:
+```shell
+llm -m kimi-k2.6 -T '$web_search' "Introduce the first astronaut from Hong Kong"
+```
+
 Display account balance:
 ```shell
 llm kimi balance

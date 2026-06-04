@@ -1,6 +1,7 @@
 import json
 from typing import Iterator, TYPE_CHECKING
 
+import httpx
 import llm
 from llm.default_plugins.openai_models import Chat, combine_chunks
 from llm.utils import remove_dict_none_values
@@ -10,6 +11,9 @@ from rich.style import Style
 if TYPE_CHECKING:
     from openai import OpenAI
     from openai.types.chat.chat_completion_chunk import ChoiceDeltaToolCall
+
+
+API_BASE = 'https://api.moonshot.cn/v1'
 
 
 @llm.hookimpl
@@ -31,7 +35,7 @@ class KimiModel(Chat):
         super().__init__(
             model_id=model_id,
             model_name=model_id,
-            api_base='https://api.moonshot.cn/v1',
+            api_base=API_BASE,
             supports_schema=True,
             supports_tools=True,
         )
@@ -133,3 +137,33 @@ class KimiModel(Chat):
                 output[index] = tool_call
             else:
                 output[index].function.arguments += tool_call.function.arguments
+
+
+class BearerAuth(httpx.Auth):
+    def __init__(self, token: str):
+        self.token = token
+
+    def auth_flow(self, request: httpx.Request):
+        request.headers["Authorization"] = 'Bearer ' + self.token
+        yield request
+
+
+@llm.hookimpl
+def register_commands(cli):
+    @cli.group()
+    def kimi():
+        "Commands relating to the llm-kimi plugin"
+
+    @kimi.command()
+    def balance():
+        """Display balance of the Moonshot account"""
+        key = llm.get_key(None, 'kimi', 'MOONSHOT_API_KEY')
+        response = httpx.get(API_BASE + '/users/me/balance', auth=BearerAuth(key))
+        response.raise_for_status()
+        result = response.json()
+        if result['code'] != 0:
+            raise ValueError(f"code {result['code']}")
+        data = result['data']
+        print(f"Available balance: {data['available_balance']:>10.2f}")
+        print(f"Voucher balance:   {data['voucher_balance']:>10.2f}")
+        print(f"Cash balance:      {data['cash_balance']:>10.2f}")

@@ -29,6 +29,11 @@ To enable thinking mode, use `-o thinking true`:
 llm -m kimi-k2.6 -o thinking true "I need to get my car washed. The car wash is 100m away. Should I go by car or by foot?"
 ```
 
+Display account balance:
+```shell
+llm kimi balance
+```
+
 ## Available models
 
 | Model ID  | Alias |

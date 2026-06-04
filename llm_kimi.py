@@ -1,5 +1,5 @@
 import json
-from typing import Iterator, TYPE_CHECKING
+from typing import Iterator, TYPE_CHECKING, override
 
 import httpx
 import llm
@@ -31,6 +31,7 @@ class KimiModel(Chat):
         thinking: bool = False
         max_tokens: int | None = None
 
+    @override
     def __init__(self, model_id: str):
         super().__init__(
             model_id=model_id,
@@ -44,9 +45,11 @@ class KimiModel(Chat):
         self._reasoning_style = Style(color='cyan', dim=True)
         self._last_reasoning_content = None
 
+    @override
     def __str__(self) -> str:
         return 'KimiModel: ' + self.model_id
 
+    @override
     def execute(self, prompt: llm.Prompt, stream: bool, response: llm.Response, conversation: llm.Conversation | None = None, key: str | None = None) -> Iterator[str]:
         messages = self.build_messages(prompt, conversation)
         kwargs = self.build_kwargs(prompt, stream)

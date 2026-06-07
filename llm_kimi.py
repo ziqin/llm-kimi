@@ -189,12 +189,12 @@ class BearerAuth(httpx.Auth):
 def register_commands(cli):
     @cli.group()
     def kimi():
-        "Commands relating to the llm-kimi plugin"
+        'Commands for working directly with the Kimi API'
 
     @kimi.command()
     def balance():
         """Display balance of the Moonshot account"""
-        key = llm.get_key(None, 'kimi', 'MOONSHOT_API_KEY')
+        key = llm.get_key(None, KimiModel.needs_key, KimiModel.key_env_var)
         response = httpx.get(API_BASE + '/users/me/balance', auth=BearerAuth(key))
         response.raise_for_status()
         result = response.json()

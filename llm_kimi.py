@@ -6,9 +6,8 @@ from typing import Any, Iterator, TYPE_CHECKING, override
 import httpx
 import llm
 from llm.default_plugins.openai_models import Chat, ImageDetailEnum, combine_chunks
+from llm.parts import StreamEvent
 from llm.utils import remove_dict_none_values
-from rich.console import Console
-from rich.style import Style
 
 if TYPE_CHECKING:
     from openai import OpenAI
@@ -42,9 +41,6 @@ class KimiModel(Chat):
             supports_schema=True,
             supports_tools=True,
         )
-        self._console = Console()
-        self._header_style = Style(color='cyan', bold=True)
-        self._reasoning_style = Style(color='cyan', dim=True)
         self._last_reasoning_content = None
 
     @override
@@ -52,7 +48,7 @@ class KimiModel(Chat):
         return 'KimiModel: ' + self.model_id
 
     @override
-    def execute(self, prompt: llm.Prompt, stream: bool, response: llm.Response, conversation: llm.Conversation | None = None, key: str | None = None) -> Iterator[str]:
+    def execute(self, prompt: llm.Prompt, stream: bool, response: llm.Response, conversation: llm.Conversation | None = None, key: str | None = None) -> Iterator[StreamEvent]:
         messages = self.build_messages(prompt, conversation)
         kwargs = self.build_kwargs(prompt, stream)
         client: OpenAI = self.get_client(key=key)
@@ -67,8 +63,7 @@ class KimiModel(Chat):
         if stream:
             chunks = []
             tool_calls = {}
-            reasoning_started = False
-            reasoning_content = None
+            reasoning_content = ''
             for chunk in completion:
                 chunks.append(chunk)
                 if chunk.usage:
@@ -77,23 +72,13 @@ class KimiModel(Chat):
                     delta = chunk.choices[0].delta
                     KimiModel._merge_tool_calls(tool_calls, delta.tool_calls or [])
                     if hasattr(delta, 'reasoning_content') and delta.reasoning_content:
-                        if not reasoning_started:
-                            reasoning_started = True
-                            reasoning_content = ''
-                            self._print_reasoning(delta.reasoning_content, print_header=True)
-                        else:
-                            self._print_reasoning(delta.reasoning_content, print_header=False)
+                        yield StreamEvent(type='reasoning', chunk=delta.reasoning_content)
                         reasoning_content += delta.reasoning_content
                     if delta.content:
-                        if reasoning_started:
-                            reasoning_started = False
-                            self._console.print('\n\n 💬 Answer:', style=self._header_style, end='\n\n')
-                        yield delta.content
+                        yield StreamEvent(type='text', chunk=delta.content)
                 except IndexError:
                     pass
             response_dict = combine_chunks(chunks)
-            response_dict['reasoning_content'] = reasoning_content
-            self._last_reasoning_content = reasoning_content
             if tool_calls:
                 for value in tool_calls.values():
                     response.add_tool_call(llm.ToolCall(
@@ -106,21 +91,15 @@ class KimiModel(Chat):
             response_dict = completion.model_dump()
             try:
                 message = completion.choices[0].message
-                reasoning_content = getattr(message, 'reasoning_content', default=None)
+                reasoning_content = getattr(message, 'reasoning_content', default='')
                 if reasoning_content:
-                    self._print_reasoning(reasoning_content, print_header=True)
-                    self._console.print('\n\n 💬 Answer:', style=self._header_style, end='\n\n')
-                self._last_reasoning_content = reasoning_content
-                yield message.content
+                    yield StreamEvent(type='reasoning', chunk=reasoning_content)
+                yield StreamEvent(type='text', chunk=message.content)
             except IndexError:
                 pass
+        self._last_reasoning_content = reasoning_content
         response.response_json = remove_dict_none_values(response_dict)
         self.set_usage(response, usage)
-
-    def _print_reasoning(self, reasoning_content: str, print_header: bool):
-        if print_header:
-            self._console.print('\n 💭 Thinking:', style=self._header_style, end='\n\n')
-        self._console.print(reasoning_content, style=self._reasoning_style, end='')
 
     @staticmethod
     def _merge_tool_calls(output: dict[int, ChoiceDeltaToolCall], tool_calls: list[ChoiceDeltaToolCall]):
@@ -181,7 +160,7 @@ class BearerAuth(httpx.Auth):
         self.token = token
 
     def auth_flow(self, request: httpx.Request):
-        request.headers["Authorization"] = 'Bearer ' + self.token
+        request.headers['Authorization'] = 'Bearer ' + self.token
         yield request
 
 
@@ -189,7 +168,7 @@ class BearerAuth(httpx.Auth):
 def register_commands(cli):
     @cli.group()
     def kimi():
-        'Commands for working directly with the Kimi API'
+        """Commands for working directly with the Kimi API"""
 
     @kimi.command()
     def balance():

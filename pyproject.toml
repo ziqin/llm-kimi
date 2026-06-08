@@ -1,14 +1,13 @@
 [project]
 name = "llm-kimi"
-version = "0.1.0"
+version = "0.2.0"
 description = "LLM plugin to access Moonshot's Kimi models"
 authors = [{ name = "Ziqin Wang" }]
 requires-python = ">=3.12"
 license = "MIT"
 dependencies = [
     "httpx>=0.28.1",
-    "llm>=0.31",
-    "rich>=15.0.0",
+    "llm>=0.32a2",
 ]
 
 [project.entry-points.llm]
